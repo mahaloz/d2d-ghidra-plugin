@@ -3,6 +3,12 @@ package decomp2dbg;
 import decomp2dbg.D2DGhidraServer;
 
 import java.awt.Event;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
+
 import javax.swing.KeyStroke;
 
 import docking.action.DockingAction;
@@ -11,6 +17,7 @@ import docking.action.*;
 import docking.action.MenuData;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.ExamplesPluginPackage;
+import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
@@ -19,9 +26,13 @@ import ghidra.framework.model.*;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
+import ghidra.program.database.symbol.CodeSymbol;
+import ghidra.program.database.symbol.FunctionSymbol;
+import ghidra.program.database.symbol.VariableSymbolDB;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.Symbol;
 import ghidra.program.util.*;
 import ghidra.util.Msg;
 import resources.ResourceManager;
@@ -36,6 +47,9 @@ import resources.ResourceManager;
 public class D2DPlugin extends ProgramPlugin implements DomainObjectListener {
 	private DockingAction configureD2DAction;
 	private D2DGhidraServer server;
+	public Map<Long, DecompileResults> decompileCache;
+	public Map<Long, String> gVarCache;
+	public Map<Long, FunctionSymbol> funcSymCache;
 	
 	public D2DPlugin(PluginTool tool) {
 		super(tool, true, true);
@@ -43,6 +57,11 @@ public class D2DPlugin extends ProgramPlugin implements DomainObjectListener {
 		// Add a d2d button to 'Tools' in GUI menu
 		configureD2DAction = this.createD2DMenuAction();
 		tool.addAction(configureD2DAction);
+		
+		// cache
+		decompileCache = new HashMap<>();
+		gVarCache = new HashMap<>();
+		funcSymCache = new HashMap<>();
 	}
 	
 	@Override
@@ -97,121 +116,92 @@ public class D2DPlugin extends ProgramPlugin implements DomainObjectListener {
 	
 	@Override
 	public void domainObjectChanged(DomainObjectChangedEvent ev) {
-		int[] program_undo_redo_events = new int[] {
-			DomainObject.DO_OBJECT_RESTORED, 
-			ChangeManager.DOCR_CODE_REMOVED
-		};
+		// also look at:
+		// https://github.com/NationalSecurityAgency/ghidra/blob/master/Ghidra/Features/Base/src/main/java/ghidra/app/plugin/core/analysis/AutoAnalysisManager.java
+		// for more usage on this stufs
 		
-		int[] cmt_events = new int[] {
-			ChangeManager.DOCR_PRE_COMMENT_CHANGED,
-			ChangeManager.DOCR_POST_COMMENT_CHANGED,
-			ChangeManager.DOCR_EOL_COMMENT_CHANGED,
-			ChangeManager.DOCR_PLATE_COMMENT_CHANGED,
-			ChangeManager.DOCR_REPEATABLE_COMMENT_CHANGED,
-			ChangeManager.DOCR_REPEATABLE_COMMENT_REMOVED,
-			ChangeManager.DOCR_REPEATABLE_COMMENT_CREATED,
-			ChangeManager.DOCR_REPEATABLE_COMMENT_ADDED,
-			ChangeManager.DOCR_REPEATABLE_COMMENT_DELETED,
-		};
-		
-		int[] func_events = new int[] {
+		ArrayList<Integer> funcEvents = new ArrayList<>(Arrays.asList(
 			ChangeManager.DOCR_FUNCTION_CHANGED,
 			ChangeManager.DOCR_FUNCTION_BODY_CHANGED,
 			ChangeManager.DOCR_VARIABLE_REFERENCE_ADDED,
 			ChangeManager.DOCR_VARIABLE_REFERENCE_REMOVED
-		};
+		));
+
+		ArrayList<Integer> symDelEvents = new ArrayList<>(Arrays.asList(
+			ChangeManager.DOCR_SYMBOL_REMOVED	
+		));
+		
+		ArrayList<Integer> symChgEvents = new ArrayList<>(Arrays.asList(
+			ChangeManager.DOCR_SYMBOL_ADDED,
+			ChangeManager.DOCR_SYMBOL_RENAMED,
+			ChangeManager.DOCR_SYMBOL_DATA_CHANGED
+		));
 		
 		
-		System.out.println("Change detected");
-		if (this.eventContains(ev, program_undo_redo_events))
-		{
-			// reload or undo event has happend
-			return;
-		}
-		
-		// check for and handle commend added, comment deleted, and comment changed events
-		if (this.eventContains(ev, cmt_events))
-		{
-			this.handleCmtChanged(ev);
-		}
-		else if(this.eventContains(ev, func_events))
-		{
-			System.out.println("Function changed!");
-		}
-	}
-	
-	private Boolean eventContains(DomainObjectChangedEvent ev, int[] events) {
-		for (int event: events) {
-			if (ev.containsEvent(event)) {
-				return true;
-			}
-		}
-		return false; 
-	}
-	
-	/*
-	 * Comments
-	 */
-	
-	private int getCommentType(int type) {
-		if (type == ChangeManager.DOCR_PRE_COMMENT_CHANGED) {
-			return CodeUnit.PRE_COMMENT;
-		}
-		if (type == ChangeManager.DOCR_POST_COMMENT_CHANGED) {
-			return CodeUnit.POST_COMMENT;
-		}
-		if (type == ChangeManager.DOCR_EOL_COMMENT_CHANGED) {
-			return CodeUnit.EOL_COMMENT;
-		}
-		if (type == ChangeManager.DOCR_PLATE_COMMENT_CHANGED) {
-			return CodeUnit.PLATE_COMMENT;
-		}
-		if ((type == ChangeManager.DOCR_REPEATABLE_COMMENT_CHANGED) ||
-			(type == ChangeManager.DOCR_REPEATABLE_COMMENT_ADDED) ||
-			(type == ChangeManager.DOCR_REPEATABLE_COMMENT_REMOVED) ||
-			(type == ChangeManager.DOCR_REPEATABLE_COMMENT_CREATED) ||
-			(type == ChangeManager.DOCR_REPEATABLE_COMMENT_DELETED)) {
-			return CodeUnit.REPEATABLE_COMMENT;
-		}
-		return -1;
-	}
-	
-	private void handleCmtChanged(DomainObjectChangedEvent ev)
-	{
 		for (DomainObjectChangeRecord record : ev) {
-			System.out.println("Comment changed called!");
+			// only analyze changes to the current program 
+			if( !(record instanceof ProgramChangeRecord) )
+				continue;
 			
-			int type = record.getEventType();
-			int commentType = getCommentType(type);
-			if (commentType == -1) {
+			int chgType = record.getEventType();
+			var pcr = (ProgramChangeRecord) record;
+			var obj = pcr.getObject();
+			var newVal = pcr.getNewValue();
+			
+			/*
+			 * Function Updates
+			 */
+			if(funcEvents.contains(chgType)) {
+				// use record.getSubEvent() when checking if a FUNCTION_CHANGED
+				// since it will be triggered if the signature of the function changes
+				var funcAddr = pcr.getStart().getOffset();
+				this.decompileCache.put(funcAddr, null);
+			}
+			
+			/*
+			 * Symbol Removed (global variable)
+			 */
+			else if (symDelEvents.contains(chgType)) {
 				continue;
 			}
-
-			ProgramChangeRecord pRec = (ProgramChangeRecord) record;
-
-			String oldComment = (String) pRec.getOldValue();
-			String newComment = (String) pRec.getNewValue();
-			Address commentAddress = pRec.getStart();
-
-			// if old comment is null then the change is an add comment so add the comment to the table
-			if (oldComment == null) {
-				//todo
-				assert true;
-			}
-
-			// if the new comment is null then the change is a delete comment so remove the comment from the table
-			else if (newComment == null) {
-				//todo
-				assert true;
-			}
-			// otherwise, the comment is changed so repaint the table
-			else {
-				//todo
-				assert true;
+			
+			/*
+			 * Symbol Updated or Created
+			 */
+			else if (symChgEvents.contains(chgType)) {
+				if (obj == null && newVal != null)
+					obj = newVal;
+				
+				/*
+				 * Stack Variable
+				 */
+				if (obj instanceof VariableSymbolDB) {
+					continue;
+				}
+				/*
+				 * GlobalVar & Label
+				 */
+				else if(obj instanceof CodeSymbol) {
+					var sym = (CodeSymbol) obj;
+					var newName = sym.getName();
+					var addr = sym.getAddress().getOffset();
+					this.gVarCache.put(addr, newName);
+				}
+				/*
+				 * Function Name
+				 */
+				else if(obj instanceof FunctionSymbol) {
+					var sym = (FunctionSymbol) obj;
+					var newName = sym.getName();
+					var addr = sym.getAddress().getOffset();
+					this.funcSymCache.put(addr, sym);
+				}
+				else
+					continue;
+				
+				this.decompileCache.clear();
 			}
 		}
-		
 	}
-
 	
 }

@@ -82,15 +82,38 @@ public class D2DGhidraServerAPI {
 		return func;
 	}
 	
+	private Address rebaseAddr(Integer addr, Boolean rebaseDown) {
+		var program = this.server.plugin.getCurrentProgram();
+		var base = (int) program.getImageBase().getOffset();
+		Integer rebasedAddr = addr;
+		if(rebaseDown) {
+			rebasedAddr -= base;
+		}
+		else if(addr < base) {
+			rebasedAddr += base;
+		}
+		
+		return this.strToAddr(Integer.toHexString(rebasedAddr));
+	}
+	
 	private Address strToAddr(String addrStr) {
 		return this.server.plugin.getCurrentProgram().getAddressFactory().getAddress(addrStr);
 	}
 	
 	private DecompileResults decompileFunc(Function func) {
+		var cacheRes = this.server.plugin.decompileCache.get(func.getEntryPoint().getOffset());
+		if(cacheRes != null) {
+			Msg.info(this, "Cache hit!");
+			return (DecompileResults) cacheRes; 
+		}
+		
 		DecompInterface ifc = new DecompInterface();
 		ifc.setOptions(new DecompileOptions());
 		ifc.openProgram(this.server.plugin.getCurrentProgram());
 		DecompileResults res = ifc.decompileFunction(func, 10, new ConsoleTaskMonitor());
+		
+		// cache it!
+		this.server.plugin.decompileCache.put(func.getEntryPoint().getOffset(), res);
 		return res;
 	}
 	
@@ -142,7 +165,10 @@ public class D2DGhidraServerAPI {
 		resp.put("curr_line", -1);
 		resp.put("func_name", "");
 		
-		var func = this.getNearestFunction(this.strToAddr(Integer.toHexString(addr)));
+		var rebasedAddr = this.rebaseAddr(addr, false);
+		var func = this.getNearestFunction(this.rebaseAddr(addr, false));
+		var rebasedAddrLong = rebasedAddr.getOffset();
+		
 		if(func == null) {
 			Msg.warn(server, "Failed to find a function by the address " + addr);
 			return resp;
@@ -173,7 +199,8 @@ public class D2DGhidraServerAPI {
 				}
 				long tokenMinAddr = line.getToken(i).getMinAddress().getOffset();
 				long tokenMaxAddr = line.getToken(i).getMaxAddress().getOffset();
-				if(tokenMinAddr == addr || tokenMaxAddr == addr || (addr > tokenMinAddr && addr < tokenMaxAddr)) {
+				if(tokenMinAddr == rebasedAddrLong || tokenMaxAddr == rebasedAddrLong || 
+						(rebasedAddrLong > tokenMinAddr && rebasedAddrLong < tokenMaxAddr)) {
 					lineFound = true;
 					lineNumber = line.getLineNumber();
 					break;
@@ -197,7 +224,7 @@ public class D2DGhidraServerAPI {
 		Map<String, Object> resp = new HashMap<>();
 		resp.put("stack_vars", new HashMap<>());
 		resp.put("reg_vars", new HashMap<>());
-		var func = this.getNearestFunction(this.strToAddr(Integer.toHexString(addr)));
+		var func = this.getNearestFunction(this.rebaseAddr(addr, false));
 		if(func == null) {
 			Msg.warn(server, "Failed to find a function by the address " + addr);
 			return resp;
@@ -235,11 +262,54 @@ public class D2DGhidraServerAPI {
 
 	public Map<String, Object> function_headers() {
 		Map<String, Object> resp = new HashMap<>();
+		var program = this.server.plugin.getCurrentProgram();
+		var fm = program.getFunctionManager();
+		var functions = fm.getFunctions(true);
+		for (Function func : functions) {
+			Map<String, Object> funcInfo = new HashMap<>();
+			funcInfo.put("name", func.getName());
+			funcInfo.put("size", (int) func.getBody().getNumAddresses());
+			var rebasedAddr = this.rebaseAddr((int) func.getEntryPoint().getOffset(), true);
+			resp.put("0x" + rebasedAddr.toString(), funcInfo);
+			
+		}
+		
 		return resp;
 	}
 	
 	public Map<String, Object> global_vars() {
+		/*
+		 * TODO:
+		 * Read this to recap on the progress of global vars:
+		 * - we have the dict for storing the cache, which we can get all symbols and their addrs
+		 * - FOR BINSYNC:
+		 * 	- we still need to get the type for each global var, as well as the size if possible
+		 * 	- currently we can get a reference to the global_label, but that gets us something 'undefined8' and such 
+		 * 	- need to find if we can convert those to the correct type 
+		 * - FOR D2D:
+		 * 	1. Check if a symbol change shows the name
+		 *  2. Populate the cache on change 
+		var dm = this.server.plugin.getCurrentProgram().getDataTypeManager();
+		var lst = this.server.plugin.getCurrentProgram().getListing();
+		var data = lst.getDataAt(this.rebaseAddr(0xdead, false));
+		var dType = data.getDataType();
+		 */
+		// this code is for getting the type of a global variable ^^^
+		
 		Map<String, Object> resp = new HashMap<>();
+		var symTab = this.server.plugin.getCurrentProgram().getSymbolTable();
+		
+		for (Symbol sym: symTab.getAllSymbols(false)) {
+			if (sym.getSymbolType() != SymbolType.LABEL)
+				continue;
+			
+			Map<String, Object> varInfo = new HashMap<>();
+			varInfo.put("name", sym.getName());
+			var rebasedAddr = this.rebaseAddr((int) sym.getAddress().getOffset(), true);
+			resp.put("0x" + rebasedAddr.toString(), varInfo);
+		}
+		
+		
 		return resp;
 	}
 	
