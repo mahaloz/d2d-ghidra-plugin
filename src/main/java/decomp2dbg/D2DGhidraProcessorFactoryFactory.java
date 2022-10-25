@@ -1,12 +1,8 @@
 package decomp2dbg;
 
 import org.apache.xmlrpc.XmlRpcException;
-import org.apache.xmlrpc.server.*;
 import org.apache.xmlrpc.XmlRpcRequest;
-import org.apache.xmlrpc.webserver.WebServer;
-import org.python.bouncycastle.crypto.util.CipherKeyGeneratorFactory;
-
-import decomp2dbg.D2DGhidraServerAPI;
+import org.apache.xmlrpc.server.RequestProcessorFactoryFactory;
 
 public class D2DGhidraProcessorFactoryFactory implements RequestProcessorFactoryFactory {
 	private final RequestProcessorFactory factory = new D2DGhidraProcessorFactory();

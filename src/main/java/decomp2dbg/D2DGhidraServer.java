@@ -1,14 +1,8 @@
 package decomp2dbg;
 
 import org.apache.xmlrpc.XmlRpcException;
-import org.apache.xmlrpc.server.*;
+import org.apache.xmlrpc.server.PropertyHandlerMapping;
 import org.apache.xmlrpc.webserver.WebServer;
-
-import ghidra.Ghidra;
-
-import decomp2dbg.D2DPlugin;
-import decomp2dbg.D2DGhidraServerAPI;
-import decomp2dbg.D2DGhidraProcessorFactoryFactory;
 
 
 public class D2DGhidraServer {
