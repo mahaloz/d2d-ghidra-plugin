@@ -175,10 +175,8 @@ public class D2DPlugin extends ProgramPlugin implements DomainObjectListener {
 	
 	public DecompileResults decompileFunc(Function func) {
 		var cacheRes = this.decompileCache.get(func.getEntryPoint().getOffset());
-		if(cacheRes != null) {
-			Msg.info(this, "Cache hit!");
+		if(cacheRes != null) 
 			return (DecompileResults) cacheRes; 
-		}
 		
 		DecompInterface ifc = new DecompInterface();
 		ifc.setOptions(new DecompileOptions());
