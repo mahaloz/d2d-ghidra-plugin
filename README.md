@@ -9,7 +9,7 @@ Please look at the decomp2dbg project docs for more info.
 ![](./data/readme_0.png)
 
 4. Search in the filter for "d2d", and enable it by clickng on the box
-	- If you don't see the d2d plugin, download the latest release from [here](https://github.com/mahaloz/decomp2dbg/releases/latest/download/d2d-ghidra-plugin.zip) and move add it manually to the Extensions/Ghidra folder in your install.
+	- If you don't see the d2d plugin, download the latest release from [here](https://github.com/mahaloz/decomp2dbg/releases/latest/download/d2d-ghidra-plugin.zip) and add it manually to the Extensions/Ghidra folder in your install.
 
 5. Restart Ghidra
 6. Open a binary, now click `File->Configure...` tab and enable `decomp2dbg` plugin.
