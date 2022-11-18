@@ -55,7 +55,7 @@ public class D2DPlugin extends ProgramPlugin implements DomainObjectListener {
 	public Map<Integer, Object> funcDataCache;
 	
 	public D2DPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 		
 		// Add a d2d button to 'Tools' in GUI menu
 		configureD2DAction = this.createD2DMenuAction();
@@ -66,16 +66,6 @@ public class D2DPlugin extends ProgramPlugin implements DomainObjectListener {
 		gVarCache = new HashMap<>();
 		funcSymCache = new HashMap<>();
 		funcDataCache = new HashMap<>();
-	}
-	
-	@Override
-	public void init() {
-		super.init();
-	}
-
-	@Override
-	public void dispose() {
-		super.dispose();
 	}
 	
 	@Override
