@@ -139,7 +139,7 @@ public class D2DGhidraServerAPI {
 		Map<String, Object> resp = new HashMap<>();
 		var symTab = this.server.plugin.getCurrentProgram().getSymbolTable();
 		for (Symbol sym: symTab.getAllSymbols(true)) {
-			if (sym.getSymbolType() != SymbolType.LABEL || !sym.isDynamic())
+			if (sym.getSymbolType() != SymbolType.LABEL || !sym.isExternal())
 				continue;
 			
 			Map<String, Object> varInfo = new HashMap<>();
